@@ -13,11 +13,84 @@
 #include <stdio.h>
 #include "raylib.h"
 #include "rcamera.h"
+#include "raymath.h"
 
-
+#define FLT_MAX     340282346638528859811704183484516925440.0f 
 //------------------------------------------------------------------------------------
 // Program main entry point
 //------------------------------------------------------------------------------------
+
+
+// TREE FUNCTIONS AND STUFF
+//---------------------------------------------------------------------------------------------
+typedef struct Tree {
+    Model model;
+    Vector3 position;
+    float scale;
+    BoundingBox colBox;
+    int arrayPos;
+} Tree;
+
+Tree allTrees[100];
+int treeNum = 0;
+
+Tree CreateTree(const char* modelPath, Vector3 position, float scale) {
+    Tree tree;
+    tree.model = LoadModel(modelPath);  // Load the tree model
+    tree.position = position;           // Set its position
+    tree.scale = scale;                 // Set the scale factor
+    tree.colBox.max = Vector3AddValue(tree.position, (scale * 0.7f));
+    tree.colBox.max = Vector3Add(tree.colBox.max, (Vector3){ 0.0f, (5.0f * tree.scale), 0.0f});
+    tree.colBox.min = Vector3SubtractValue(tree.position, (scale * 0.7f));
+    allTrees[treeNum] = tree;
+    tree.arrayPos = treeNum;
+    treeNum++;
+    return tree;                        // Return the tree instance
+}
+
+void DrawTree(Tree* tree) {
+    // Draw the model at its position with the given scale
+    DrawModel(tree->model, tree->position, tree->scale, WHITE);
+    DrawBoundingBox(tree->colBox, RED);
+}
+
+void UnloadTree(Tree* tree) {
+    UnloadModel(tree->model);  // Unload the tree's model from memory
+}
+
+void KillTree(Tree* tree) {
+    int index = tree->arrayPos;
+    if (index < 0 || index >= treeNum) {
+        // Invalid index, return
+        return;
+    }
+
+    // Unload the model to free resources
+    UnloadTree(&allTrees[index]);
+
+    // Shift all trees after the removed tree to the left by 1 position
+    for (int i = index; i < treeNum - 1; i++) {
+        allTrees[i] = allTrees[i + 1];
+    }
+
+    // Decrease the tree count
+    treeNum--;
+}
+Tree CreateTree(const char* modelPath, Vector3 position, float scale);
+void DrawTree(Tree* tree);
+void UnloadTree(Tree* tree);
+void KillTree(Tree* tree);
+//-----------------------------------------------------------------------------------------
+
+// TOOLS
+// -----------------------------------------------------------------------------------------
+
+typedef struct Tool {
+    Model model;
+    Vector3 position;
+    Vector3 rotation;
+} Tool;
+
 int main(void)
 {
     // Initialization
@@ -36,58 +109,45 @@ int main(void)
     camera.projection = CAMERA_PERSPECTIVE;             // Camera projection type
 
     int cameraMode = CAMERA_FIRST_PERSON;
-
-    Model tree = LoadModel("src/resources/models/testing/tree/testpsx.glb");
     
-    Vector3 treePos = { 0.0f, 0.0f, 0.0f }; 
+    Tree tree1 = CreateTree("src/resources/models/testing/tree/testpsx.glb", (Vector3){ 0.0f, 0.0f, 0.0f }, 1.0f);
+    Tree tree2 = CreateTree("src/resources/models/testing/tree/testpsx.glb", (Vector3){ 10.0f, 0.0f, 2.0f }, 1.5f);
+    Tree tree3 = CreateTree("src/resources/models/testing/tree/testpsx.glb", (Vector3){ -10.0f, 0.0f, -2.0f }, 1.2f);
+    
+    DisableCursor();
+    Ray ray = { 0 };
 
-    DisableCursor();                    // Limit cursor to relative movement inside the window
-
-    SetTargetFPS(60);                   // Set our game to run at 60 frames-per-second
-    //--------------------------------------------------------------------------------------
+    SetTargetFPS(60);
 
     // Main game loop
     while (!WindowShouldClose())        // Detect window close button or ESC key
     {
-        // Update
-        //----------------------------------------------------------------------------------
-        // Update camera computes movement internally depending on the camera mode
-        // Some default standard keyboard/mouse inputs are hardcoded to simplify use
-        // For advance camera controls, it's reecommended to compute camera movement manually
+
         UpdateCamera(&camera, cameraMode);                  // Update camera
+        
+        ray = GetMouseRay(GetMousePosition(), camera);
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            for (int i = 0; i < treeNum; i++) {
+                if (GetRayCollisionBox(ray, allTrees[i].colBox).hit) {
+                    KillTree(&allTrees[i]);
+                    break;
+                }
+            }
+            
+        } 
 
-/*
-        // Camera PRO usage example (EXPERIMENTAL)
-        // This new camera function allows custom movement/rotation values to be directly provided
-        // as input parameters, with this approach, rcamera module is internally independent of raylib inputs
-        UpdateCameraPro(&camera,
-            (Vector3){
-                (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))*0.1f -      // Move forward-backward
-                (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN))*0.1f,    
-                (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT))*0.1f -   // Move right-left
-                (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT))*0.1f,
-                0.0f                                                // Move up-down
-            },
-            (Vector3){
-                GetMouseDelta().x*0.05f,                            // Rotation: yaw
-                GetMouseDelta().y*0.05f,                            // Rotation: pitch
-                0.0f                                                // Rotation: roll
-            },
-            GetMouseWheelMove()*2.0f);                              // Move to target (zoom)
-*/
-        //----------------------------------------------------------------------------------
 
-        // Draw
-        //----------------------------------------------------------------------------------
         BeginDrawing();
 
             ClearBackground(RAYWHITE);
 
-
             BeginMode3D(camera);
-            
-
-                DrawModel(tree, treePos, 1.0f, WHITE);
+              /*   DrawTree(&tree1);  // Draw the first tree
+                DrawTree(&tree2);  // Draw the second tree
+                Draw Tree(&tree3);  // Draw the third tree */
+                for (int i = 0; i < treeNum; i++) {
+                    DrawTree(&allTrees[i]);
+                }
 
                 DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 32.0f, 32.0f }, LIGHTGRAY); // Draw ground
                 DrawCube((Vector3){ -16.0f, 2.5f, 0.0f }, 1.0f, 5.0f, 32.0f, BLUE);     // Draw a blue wall
@@ -106,7 +166,9 @@ int main(void)
     // De-Initialization
     //--------------------------------------------------------------------------------------
 
-    UnloadModel(tree); 
+    for (int i = 0; i < treeNum; i++) {
+        UnloadTree(&allTrees[i]);
+    }
     CloseWindow();        // Close window and OpenGL context
     //--------------------------------------------------------------------------------------
 
